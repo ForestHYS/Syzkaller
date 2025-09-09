@@ -28,7 +28,7 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/ulikunitz/xz v0.5.12
 	golang.org/x/exp v0.0.0-20250711185948-6ae5c78190dc
-	golang.org/x/oauth2 v0.30.0
+	golang.org/x/oauth2 v0.31.0
 	golang.org/x/perf v0.0.0-20230221235046-aebcfb61e84c
 	golang.org/x/sync v0.16.0
 	golang.org/x/sys v0.34.0
