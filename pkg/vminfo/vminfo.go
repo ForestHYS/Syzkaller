@@ -64,6 +64,8 @@ func New(cfg *Config) *Checker {
 		impl = new(netbsd)
 	case targets.OpenBSD:
 		impl = new(openbsd)
+	case "xv6":
+		impl = new(xv6)
 	default:
 		impl = new(nopChecker)
 	}

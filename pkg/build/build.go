@@ -175,6 +175,7 @@ func getBuilder(targetOS, targetArch, vmType string) (builder, error) {
 		targets.FreeBSD: freebsd{},
 		targets.Darwin:  darwin{},
 		targets.TestOS:  test{},
+		"xv6":           xv6{},
 	}
 	if builder, ok := builders[targetOS]; ok {
 		return builder, nil

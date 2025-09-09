@@ -144,6 +144,7 @@ const (
 	TestOS  = "test"
 	Trusty  = "trusty"
 	Windows = "windows"
+	XV6     = "xv6"
 
 	// These are VM types, but we put them here to prevent string duplication.
 	GVisor  = "gvisor"
@@ -495,6 +496,37 @@ var List = map[string]map[string]*Target{
 			NeedSyscallDefine: dontNeedSyscallDefine,
 		},
 	},
+	XV6: {
+		RiscV64: {
+			PtrSize:          8,
+			PageSize:         4 << 10,
+			Triple:           "riscv64-unknown-elf",
+			KernelArch:       "riscv",
+			KernelHeaderArch: "riscv",
+			CCompiler:        "riscv64-unknown-elf-gcc",
+			CxxCompiler:      "riscv64-unknown-elf-g++",
+			CFlags: []string{
+				"-mcmodel=medium",
+				"-nostdinc",
+				"-nostdlib",
+				"-static",
+				"-fno-stack-protector",
+				"-fno-common",
+				"-fno-builtin",
+			},
+		},
+		I386: {
+			VMArch:           AMD64,
+			PtrSize:          4,
+			PageSize:         4 << 10,
+			Int64Alignment:   4,
+			Triple:           "i386-unknown-elf",
+			KernelArch:       "i386",
+			KernelHeaderArch: "x86",
+			CCompiler:        "i386-unknown-elf-gcc",
+			CxxCompiler:      "i386-unknown-elf-g++",
+		},
+	},
 }
 
 var oses = map[string]osCommon{
@@ -581,6 +613,14 @@ var oses = map[string]osCommon{
 		SyscallNumbers:   true,
 		Int64SyscallArgs: true,
 		SyscallPrefix:    "__NR_",
+	},
+	XV6: {
+		SyscallNumbers:         true,
+		SyscallPrefix:          "SYS_",
+		ExecutorUsesForkServer: false, // XV6 might not support complex fork server
+		KernelObject:           "kernel",
+		CPP:                    "cpp",
+		cflags:                 []string{"-static"},
 	},
 }
 

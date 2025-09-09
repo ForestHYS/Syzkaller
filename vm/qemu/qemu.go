@@ -260,6 +260,24 @@ var archConfigs = map[string]*archConfig{
 			"kernel.lockup-detector.heartbeat-age-fatal-threshold-ms=300000",
 		},
 	},
+	"xv6/riscv64": {
+		Qemu:                   "qemu-system-riscv64",
+		QemuArgs:               "-machine virt -cpu rv64",
+		NetDev:                 "virtio-net-pci",
+		RngDev:                 "", // XV6 doesn't need RNG device
+		UseNewQemuImageOptions: true,
+		CmdLine: []string{
+			"console=ttyS0",
+		},
+	},
+	"xv6/386": {
+		Qemu:   "qemu-system-i386",
+		NetDev: "e1000",
+		RngDev: "", // XV6 doesn't need RNG device
+		CmdLine: []string{
+			"console=ttyS0",
+		},
+	},
 }
 
 func ctor(env *vmimpl.Env) (vmimpl.Pool, error) {

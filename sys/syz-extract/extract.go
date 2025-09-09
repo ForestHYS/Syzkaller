@@ -67,6 +67,7 @@ var extractors = map[string]Extractor{
 	targets.Fuchsia: new(fuchsia),
 	targets.Windows: new(windows),
 	targets.Trusty:  new(trusty),
+	"xv6":           new(xv6),
 }
 
 func main() {

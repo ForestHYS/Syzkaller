@@ -1,0 +1,86 @@
+# XV6交叉编译支持的Makefile修改
+
+## 问题分析
+当前Makefile的executor编译逻辑：
+1. 使用 $(CXX) 变量作为编译器
+2. 这个变量在不同OS/ARCH组合下会被设置为不同的交叉编译器
+3. 但目前没有为XV6设置正确的RISC-V交叉编译器
+
+## 需要的修改
+
+### 1. 在tools/syz-make/make.go中添加XV6支持
+
+需要在go文件中为XV6/RISC-V设置正确的编译器：
+
+```go
+// 在makeTargetVars函数中添加
+if os == "xv6" && arch == "riscv64" {
+    crossCompiler := "riscv64-unknown-elf"
+    // 或者 "riscv64-linux-gnu" 取决于你的工具链
+    
+    vars["CXX"] = crossCompiler + "-g++"
+    vars["CC"] = crossCompiler + "-gcc"
+    vars["CXXFLAGS"] = "-static -nostdlib -nostdinc"
+    vars["LDFLAGS"] = "-static -nostdlib"
+}
+```
+
+### 2. 直接修改Makefile添加XV6特殊规则
+
+在executor规则后添加：
+
+```makefile
+# XV6特殊的executor编译规则
+executor_xv6: descriptions
+ifeq ($(TARGETOS),xv6)
+	mkdir -p ./bin/$(TARGETOS)_$(TARGETARCH)
+	# 检查XV6路径
+	@if [ -z "$(XV6_PATH)" ]; then \
+		echo "Error: XV6_PATH not set. Please set XV6_PATH to your xv6-riscv directory"; \
+		exit 1; \
+	fi
+	# 使用RISC-V交叉编译器
+	riscv64-unknown-elf-g++ -o ./bin/$(TARGETOS)_$(TARGETARCH)/syz-executor \
+		executor/executor.cc \
+		-static -nostdlib -nostdinc \
+		-mcmodel=medium -fno-omit-frame-pointer \
+		-I$(XV6_PATH)/kernel -I$(XV6_PATH)/user \
+		-T $(XV6_PATH)/user/user.ld \
+		$(XV6_PATH)/user/ulib.c $(XV6_PATH)/user/usys.o \
+		-DGOOS_xv6=1 -DGOARCH_riscv64=1 -DXV6_BUILD=1 \
+		-DHOSTGOOS_$(HOSTOS)=1 -DGIT_REVISION=\"$(REV)\"
+else
+	$(MAKE) executor
+endif
+```
+
+### 3. 更简单的方案：创建专门的XV6 Makefile
+
+创建 executor/Makefile.xv6：
+
+```makefile
+# XV6专用的executor编译
+XV6_PATH ?= ../xv6-riscv
+CC = riscv64-unknown-elf-gcc
+CXX = riscv64-unknown-elf-g++
+
+CFLAGS = -Wall -Werror -O -fno-omit-frame-pointer -ggdb
+CFLAGS += -mcmodel=medium -nostdinc -fno-stack-protector
+CFLAGS += -fno-common -fno-builtin -fno-pie -no-pie
+CFLAGS += -I$(XV6_PATH)/kernel -I$(XV6_PATH)/user
+CFLAGS += -DGOOS_xv6=1 -DGOARCH_riscv64=1 -DXV6_BUILD=1
+
+LDFLAGS = -T $(XV6_PATH)/user/user.ld
+
+OBJS = $(XV6_PATH)/user/ulib.o $(XV6_PATH)/user/usys.o
+
+all: syz-executor-xv6
+
+syz-executor-xv6: executor.cc executor_xv6.h
+	$(CXX) $(CFLAGS) -o $@ executor.cc $(OBJS) $(LDFLAGS)
+
+clean:
+	rm -f syz-executor-xv6
+
+.PHONY: all clean
+```

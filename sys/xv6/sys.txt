@@ -1,0 +1,95 @@
+# Copyright 2024 syzkaller project authors. All rights reserved.
+# Use of this source code is governed by Apache 2 LICENSE that can be found in the LICENSE file.
+
+# XV6 system call descriptions
+# XV6 is a simple Unix-like teaching operating system with a limited set of system calls
+
+include <sys/types.h>
+include <sys/stat.h>
+include <fcntl.h>
+include <unistd.h>
+
+# XV6 system call numbers
+define SYS_fork		1
+define SYS_exit		2
+define SYS_wait		3
+define SYS_pipe		4
+define SYS_read		5
+define SYS_kill		6
+define SYS_exec		7
+define SYS_fstat	8
+define SYS_chdir	9
+define SYS_dup		10
+define SYS_getpid	11
+define SYS_sbrk		12
+define SYS_sleep	13
+define SYS_uptime	14
+define SYS_open		15
+define SYS_write	16
+define SYS_mknod	17
+define SYS_unlink	18
+define SYS_link		19
+define SYS_mkdir	20
+define SYS_close	21
+
+# XV6 file open flags
+define O_RDONLY		0
+define O_WRONLY		1
+define O_RDWR		2
+define O_CREATE		0x200
+define O_TRUNC		0x400
+
+# XV6 file types
+define T_DIR		1
+define T_FILE		2
+define T_DEV		3
+
+# XV6 process management
+fork() pid
+exit(status int32)
+wait() pid
+getpid() pid
+
+# XV6 file operations  
+open(file ptr[in, filename], omode flags[xv6_open_flags]) fd
+close(fd fd)
+read(fd fd, buf ptr[out, array[int8]], n len[buf]) len[buf]
+write(fd fd, buf ptr[in, array[int8]], n len[buf]) len[buf]
+
+# XV6 file metadata
+fstat(fd fd, st ptr[out, xv6_stat])
+
+# XV6 file system operations
+chdir(path ptr[in, filename])
+mkdir(path ptr[in, filename])
+mknod(path ptr[in, filename], major int16, minor int16)
+unlink(path ptr[in, filename])
+link(old ptr[in, filename], new ptr[in, filename])
+
+# XV6 process operations
+exec(path ptr[in, filename], argv ptr[in, array[ptr[in, filename]]])
+kill(pid pid)
+sleep(n int32)
+uptime() int32
+
+# XV6 I/O operations
+dup(fd fd) fd
+pipe(p ptr[out, array[fd, 2]])
+
+# XV6 memory management
+sbrk(n intptr) intptr
+
+# XV6 data structures
+xv6_stat {
+	dev	int16
+	ino	int16
+	type	int16
+	nlink	int16
+	size	int64
+}
+
+# XV6-specific types
+type xv6_open_flags flags[O_RDONLY, O_WRONLY, O_RDWR, O_CREATE, O_TRUNC]
+type filename stringnoz[14]  # XV6 has 14-character filename limit
+type pid int32
+type fd int32[0:15]  # XV6 typically supports 16 file descriptors per process
