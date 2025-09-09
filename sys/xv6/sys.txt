@@ -59,6 +59,6 @@ xv6_stat {
 # Types
 type xv6_open_flags flags[O_RDONLY, O_WRONLY, O_RDWR, O_CREATE, O_TRUNC]
 type filename stringnoz[14]
-pid int32
-fd int32
+type pid int32
+type fd int32
 resource fd[0:15]
