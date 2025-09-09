@@ -12,6 +12,15 @@ define T_DIR		1
 define T_FILE		2
 define T_DEV		3
 
+# Types
+type xv6_open_flags flags[O_RDONLY, O_WRONLY, O_RDWR, O_CREATE, O_TRUNC]
+type filename stringnoz
+type pid int32
+type fd int32
+
+# Resources
+resource fd[0:15]
+
 # Process management
 fork() pid
 exit(status int32)
@@ -55,10 +64,3 @@ xv6_stat {
 	nlink	int16
 	size	int64
 }
-
-# Types
-type xv6_open_flags flags[O_RDONLY, O_WRONLY, O_RDWR, O_CREATE, O_TRUNC]
-type filename stringnoz[14]
-type pid int32
-type fd int32
-resource fd[0:15]
