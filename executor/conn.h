@@ -20,13 +20,24 @@ class Connection
 {
 public:
 	Connection(const char* addr, const char* port)
-	    : fd_(Connect(addr, port))
+	    : rd_fd_(STDIN_FILENO), wr_fd_(STDOUT_FILENO)
 	{
+		// If addr=="stdin", we use stdin for input and stdout for output.
+		// This is useful for targets that communicate over a serial console
+		// bridged to the host (e.g. xv6 over QEMU serial). In that mode the
+		// manager-side proxy will frame messages and pipe them via stdio.
+		if (addr != nullptr && strcmp(addr, "stdin") == 0) {
+			// rd_fd_ and wr_fd_ are already set to STDIN/STDOUT.
+		} else {
+			int fd = Connect(addr, port);
+			rd_fd_ = fd;
+			wr_fd_ = fd;
+		}
 	}
 
 	int FD() const
 	{
-		return fd_;
+		return rd_fd_;
 	}
 
 	template <typename Msg>
@@ -56,7 +67,7 @@ public:
 	void Send(const void* data, size_t size)
 	{
 		for (size_t sent = 0; sent < size;) {
-			ssize_t n = write(fd_, static_cast<const char*>(data) + sent, size - sent);
+			ssize_t n = write(wr_fd_, static_cast<const char*>(data) + sent, size - sent);
 			if (n > 0) {
 				sent += n;
 				continue;
@@ -67,19 +78,21 @@ public:
 				sleep_ms(1);
 				continue;
 			}
-			failmsg("failed to send rpc", "fd=%d want=%zu sent=%zu n=%zd", fd_, size, sent, n);
+			failmsg("failed to send rpc", "fd=%d want=%zu sent=%zu n=%zd", wr_fd_, size, sent, n);
 		}
 	}
 
+
 private:
-	const int fd_;
+	int rd_fd_;
+	int wr_fd_;
 	std::vector<char> recv_buf_;
 	flatbuffers::FlatBufferBuilder fbb_;
 
 	void Recv(void* data, size_t size)
 	{
 		for (size_t recv = 0; recv < size;) {
-			ssize_t n = read(fd_, static_cast<char*>(data) + recv, size - recv);
+			ssize_t n = read(rd_fd_, static_cast<char*>(data) + recv, size - recv);
 			if (n > 0) {
 				recv += n;
 				continue;
@@ -90,7 +103,7 @@ private:
 				sleep_ms(1);
 				continue;
 			}
-			failmsg("failed to recv rpc", "fd=%d want=%zu recv=%zu n=%zd", fd_, size, recv, n);
+			failmsg("failed to recv rpc", "fd=%d want=%zu recv=%zu n=%zd", rd_fd_, size, recv, n);
 		}
 	}
 

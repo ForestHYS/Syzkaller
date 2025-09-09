@@ -111,6 +111,8 @@ type instance struct {
 	merger      *vmimpl.OutputMerger
 	files       map[string]string
 	*snapshot
+	// serialPort is a localhost TCP port that QEMU will connect to for the VM serial (xv6).
+	serialPort int
 }
 
 type archConfig struct {
@@ -396,6 +398,10 @@ func (pool *Pool) ctor(workdir, sshkey, sshuser string, index int) (*instance, e
 			User: sshuser,
 		},
 	}
+	// For XV6 we don't use SSH; we will bridge the VM serial over a localhost TCP socket.
+	if pool.env.OS == targets.XV6 {
+		inst.serialPort = vmimpl.UnusedTCPPort()
+	}
 	if pool.env.Snapshot {
 		inst.snapshot = new(snapshot)
 	}
@@ -499,11 +505,14 @@ func (inst *instance) boot() error {
 		}
 	}
 
-	if err := vmimpl.WaitForSSH(10*time.Minute*inst.timeouts.Scale, inst.SSHOptions,
-		inst.os, inst.merger.Err, false, inst.debug); err != nil {
-		bootOutputStop <- true
-		<-bootOutputStop
-		return vmimpl.MakeBootError(err, bootOutput)
+	// XV6 does not use SSH; skip SSH wait.
+	if inst.os != targets.XV6 {
+		if err := vmimpl.WaitForSSH(10*time.Minute*inst.timeouts.Scale, inst.SSHOptions,
+			inst.os, inst.merger.Err, false, inst.debug); err != nil {
+			bootOutputStop <- true
+			<-bootOutputStop
+			return vmimpl.MakeBootError(err, bootOutput)
+		}
 	}
 	bootOutputStop <- true
 	return nil
@@ -516,9 +525,20 @@ func (inst *instance) buildQemuArgs() ([]string, error) {
 		"-chardev", fmt.Sprintf("socket,id=SOCKSYZ,server=on,wait=off,host=localhost,port=%v", inst.monport),
 		"-mon", "chardev=SOCKSYZ,mode=control",
 		"-display", "none",
-		"-serial", "stdio",
 		"-no-reboot",
 		"-name", fmt.Sprintf("VM-%v", inst.index),
+	}
+	if inst.os == targets.XV6 {
+		// Bridge the VM serial to a localhost TCP port (inst.serialPort).
+		// QEMU will connect to this port; our host-side proxy will accept
+		// the connection and forward data to the manager.
+		args = append(args,
+			"-chardev", fmt.Sprintf("socket,id=SYZSER,host=127.0.0.1,port=%v", inst.serialPort),
+			"-serial", "chardev:SYZSER",
+		)
+	} else {
+		// Default: use stdio for serial so we can capture kernel logs.
+		args = append(args, "-serial", "stdio")
 	}
 	if inst.archConfig.RngDev != "" {
 		args = append(args, "-device", inst.archConfig.RngDev)
@@ -673,7 +693,10 @@ func (inst *instance) Copy(hostSrc string) (string, error) {
 		}
 		inst.files[vmDst] = hostSrc
 	}
-
+	if inst.os == targets.XV6 {
+		// XV6 has no SSH/SCP. Assume the binary is baked into the image.
+		return vmDst, nil
+	}
 	args := append(vmimpl.SCPArgs(inst.debug, inst.Key, inst.Port, false),
 		hostSrc, inst.User+"@localhost:"+vmDst)
 	if inst.debug {
@@ -688,48 +711,109 @@ func (inst *instance) Copy(hostSrc string) (string, error) {
 
 func (inst *instance) Run(ctx context.Context, command string) (
 	<-chan []byte, <-chan error, error) {
-	rpipe, wpipe, err := osutil.LongPipe()
-	if err != nil {
-		return nil, nil, err
-	}
-	inst.merger.Add("ssh", rpipe)
-
-	sshArgs := vmimpl.SSHArgsForward(inst.debug, inst.Key, inst.Port, inst.forwardPort, false)
-	args := strings.Split(command, " ")
-	if bin := filepath.Base(args[0]); inst.target.HostFuzzer && bin == "syz-execprog" {
-		// Weird mode for Fuchsia.
-		// Fuzzer and execprog are on host (we did not copy them), so we will run them as is,
-		// but we will also wrap executor with ssh invocation.
-		for i, arg := range args {
-			if strings.HasPrefix(arg, "-executor=") {
-				args[i] = "-executor=" + "/usr/bin/ssh " + strings.Join(sshArgs, " ") +
-					" " + inst.User + "@localhost " + arg[len("-executor="):]
-			}
-			if host := inst.files[arg]; host != "" {
-				args[i] = host
-			}
+	if inst.os != targets.XV6 {
+		rpipe, wpipe, err := osutil.LongPipe()
+		if err != nil {
+			return nil, nil, err
 		}
-	} else {
-		args = []string{"ssh"}
-		args = append(args, sshArgs...)
-		args = append(args, inst.User+"@localhost", "cd "+inst.targetDir()+" && "+command)
-	}
-	if inst.debug {
-		log.Logf(0, "running command: %#v", args)
-	}
-	cmd := osutil.Command(args[0], args[1:]...)
-	cmd.Dir = inst.workdir
-	cmd.Stdout = wpipe
-	cmd.Stderr = wpipe
-	if err := cmd.Start(); err != nil {
+		inst.merger.Add("ssh", rpipe)
+
+		sshArgs := vmimpl.SSHArgsForward(inst.debug, inst.Key, inst.Port, inst.forwardPort, false)
+		args := strings.Split(command, " ")
+		if bin := filepath.Base(args[0]); inst.target.HostFuzzer && bin == "syz-execprog" {
+			for i, arg := range args {
+				if strings.HasPrefix(arg, "-executor=") {
+					args[i] = "-executor=" + "/usr/bin/ssh " + strings.Join(sshArgs, " ") +
+						" " + inst.User + "@localhost " + arg[len("-executor="):]
+				}
+				if host := inst.files[arg]; host != "" {
+					args[i] = host
+				}
+			}
+		} else {
+			args = []string{"ssh"}
+			args = append(args, sshArgs...)
+			args = append(args, inst.User+"@localhost", "cd "+inst.targetDir()+" && "+command)
+		}
+		if inst.debug {
+			log.Logf(0, "running command: %#v", args)
+		}
+		cmd := osutil.Command(args[0], args[1:]...)
+		cmd.Dir = inst.workdir
+		cmd.Stdout = wpipe
+		cmd.Stderr = wpipe
+		if err := cmd.Start(); err != nil {
+			wpipe.Close()
+			return nil, nil, err
+		}
 		wpipe.Close()
-		return nil, nil, err
+		return vmimpl.Multiplex(ctx, cmd, inst.merger, vmimpl.MultiplexConfig{
+			Debug: inst.debug,
+			Scale: inst.timeouts.Scale,
+		})
 	}
-	wpipe.Close()
-	return vmimpl.Multiplex(ctx, cmd, inst.merger, vmimpl.MultiplexConfig{
-		Debug: inst.debug,
-		Scale: inst.timeouts.Scale,
-	})
+
+	// XV6 path: start an inline serial<->manager proxy and keep it running
+	// while returning VM output and an error channel.
+	outc := make(chan []byte, 10)
+	errc := make(chan error, 1)
+	// Forward merger output to outc.
+	go func() {
+		for data := range inst.merger.Output {
+			outc <- data
+		}
+		close(outc)
+	}()
+	// Dial manager address.
+	managerAddr := fmt.Sprintf("localhost:%d", inst.forwardPort)
+	mgr, err := net.Dial("tcp", managerAddr)
+	if err != nil {
+		return outc, errc, fmt.Errorf("failed to dial manager at %v: %w", managerAddr, err)
+	}
+	// Listen for QEMU serial connection.
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", inst.serialPort))
+	if err != nil {
+		mgr.Close()
+		return outc, errc, fmt.Errorf("failed to listen serial port: %w", err)
+	}
+	serCh := make(chan net.Conn, 1)
+	go func() {
+		c, aerr := ln.Accept()
+		if aerr != nil {
+			errc <- aerr
+			return
+		}
+		serCh <- c
+	}()
+	// When context is done, close resources.
+	go func() {
+		select {
+		case <-ctx.Done():
+			ln.Close()
+			mgr.Close()
+		case <-inst.merger.Err:
+			ln.Close()
+			mgr.Close()
+		}
+	}()
+	// Once serial connected, start bidirectional copy (raw stream, messages are already framed).
+	go func() {
+		ser := <-serCh
+		defer ser.Close()
+		// manager -> serial
+		go func() {
+			_, e := io.Copy(ser, mgr)
+			if e != nil {
+				errc <- e
+			}
+		}()
+		// serial -> manager
+		_, e := io.Copy(mgr, ser)
+		if e != nil {
+			errc <- e
+		}
+	}()
+	return outc, errc, nil
 }
 
 func (inst *instance) Info() ([]byte, error) {

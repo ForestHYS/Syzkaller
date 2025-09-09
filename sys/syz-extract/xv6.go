@@ -65,14 +65,14 @@ func (xv6 *xv6) processFile(arch *Arch, info *compiler.ConstInfo) (map[string]ui
 	undeclared := make(map[string]bool)
 
 	// Process XV6-specific constants
-	for name, info := range info.Consts {
-		val, err := xv6.extractConstant(arch, name, info)
+	for _, info := range info.Consts {
+		val, err := xv6.extractConstant(arch, info.Name, info)
 		if err != nil {
 			// If we can't extract the constant, mark it as undeclared
-			undeclared[name] = true
+			undeclared[info.Name] = true
 			continue
 		}
-		consts[name] = val
+		consts[info.Name] = val
 	}
 
 	// Add XV6-specific built-in constants

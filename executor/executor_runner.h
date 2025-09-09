@@ -907,6 +907,21 @@ static void FatalHandler(int sig, siginfo_t* info, void* ucontext)
 
 static void runner(char** argv, int argc)
 {
+	#if GOOS_xv6
+	// On xv6 we may be started without arguments and use stdio transport.
+	// In that case default vm_index to 0 and ignore addr/port.
+	int vm_index = 0;
+	const char* manager_addr = "stdin";
+	const char* manager_port = "0";
+	if (argc == 5) {
+		char* endptr = nullptr;
+		vm_index = strtol(argv[2], &endptr, 10);
+		if (vm_index < 0 || *endptr != 0)
+			failmsg("failed to parse VM index", "str='%s'", argv[2]);
+		manager_addr = argv[3];
+		manager_port = argv[4];
+	}
+	#else
 	if (argc != 5)
 		fail("usage: syz-executor runner <index> <manager-addr> <manager-port>");
 	char* endptr = nullptr;
@@ -915,6 +930,7 @@ static void runner(char** argv, int argc)
 		failmsg("failed to parse VM index", "str='%s'", argv[2]);
 	const char* const manager_addr = argv[3];
 	const char* const manager_port = argv[4];
+	#endif
 
 	struct rlimit rlim;
 	rlim.rlim_cur = rlim.rlim_max = kFdLimit;
@@ -941,7 +957,12 @@ static void runner(char** argv, int argc)
 			failmsg("sigaction failed", "sig=%d", sig);
 	}
 
+	#if GOOS_xv6
+	// On xv6 use stdio (serial bridge) transport by default.
 	Connection conn(manager_addr, manager_port);
+	#else
+	Connection conn(manager_addr, manager_port);
+	#endif
 
 	// This is required to make Subprocess fd remapping logic work.
 	// kCoverFilterFd is the largest fd we set in the child processes.
