@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/google/syzkaller/pkg/compiler"
+	"github.com/google/syzkaller/pkg/osutil"
 )
 
 type xv6 struct{}
@@ -32,7 +33,7 @@ func (xv6 *xv6) prepare(sourcedir string, build bool, arches []*Arch) error {
 
 	for _, file := range xv6Files {
 		fullPath := filepath.Join(sourcedir, file)
-		if !fileExists(fullPath) {
+		if !osutil.IsExist(fullPath) {
 			return fmt.Errorf("XV6 source verification failed: %s not found", file)
 		}
 	}
@@ -49,7 +50,7 @@ func (xv6 *xv6) prepareArch(arch *Arch) error {
 	case "riscv64":
 		// XV6 primarily supports RISC-V
 		return nil
-	case "386", "i386":
+	case "386":
 		// XV6 has legacy x86 support
 		return nil
 	default:
@@ -65,14 +66,14 @@ func (xv6 *xv6) processFile(arch *Arch, info *compiler.ConstInfo) (map[string]ui
 	undeclared := make(map[string]bool)
 
 	// Process XV6-specific constants
-	for _, info := range info.Consts {
-		val, err := xv6.extractConstant(arch, info.Name, info)
+	for _, constInfo := range info.Consts {
+		val, err := xv6.extractConstant(arch, constInfo.Name, constInfo)
 		if err != nil {
 			// If we can't extract the constant, mark it as undeclared
-			undeclared[info.Name] = true
+			undeclared[constInfo.Name] = true
 			continue
 		}
-		consts[info.Name] = val
+		consts[constInfo.Name] = val
 	}
 
 	// Add XV6-specific built-in constants
@@ -218,12 +219,72 @@ func (xv6 *xv6) extractGenericConstant(arch *Arch, name string, info *compiler.C
 	// For constants we don't have specific knowledge about,
 	// try to extract from XV6 source if available
 
-	// This is a simplified approach - in a real implementation,
-	// we might parse XV6 header files or use a simple C compiler
-	// to extract constants
+	// Handle some common POSIX-like constants that XV6 might have
+	commonConstants := map[string]uint64{
+		// Error codes
+		"EPERM":   1,
+		"ENOENT":  2,
+		"ESRCH":   3,
+		"EINTR":   4,
+		"EIO":     5,
+		"ENXIO":   6,
+		"E2BIG":   7,
+		"ENOEXEC": 8,
+		"EBADF":   9,
+		"ECHILD":  10,
+		"EAGAIN":  11,
+		"ENOMEM":  12,
+		"EACCES":  13,
+		"EFAULT":  14,
+		"EBUSY":   16,
+		"EEXIST":  17,
+		"EXDEV":   18,
+		"ENODEV":  19,
+		"ENOTDIR": 20,
+		"EISDIR":  21,
+		"EINVAL":  22,
+		"ENFILE":  23,
+		"EMFILE":  24,
+		"ENOTTY":  25,
+		"ETXTBSY": 26,
+		"EFBIG":   27,
+		"ENOSPC":  28,
+		"ESPIPE":  29,
+		"EROFS":   30,
+		"EMLINK":  31,
+		"EPIPE":   32,
 
-	// For now, just return an error for unknown constants
-	return 0, fmt.Errorf("XV6 constant %s extraction not implemented", name)
+		// File permissions
+		"S_IRUSR": 0400,
+		"S_IWUSR": 0200,
+		"S_IXUSR": 0100,
+		"S_IRGRP": 0040,
+		"S_IWGRP": 0020,
+		"S_IXGRP": 0010,
+		"S_IROTH": 0004,
+		"S_IWOTH": 0002,
+		"S_IXOTH": 0001,
+
+		// File modes
+		"S_ISUID": 04000,
+		"S_ISGID": 02000,
+		"S_ISVTX": 01000,
+
+		// Seek constants
+		"SEEK_SET": 0,
+		"SEEK_CUR": 1,
+		"SEEK_END": 2,
+
+		// NULL and other basic constants
+		"NULL": 0,
+	}
+
+	if val, ok := commonConstants[name]; ok {
+		return val, nil
+	}
+
+	// For other constants, return error as we don't have XV6 source parsing
+	return 0, fmt.Errorf("XV6 constant %s not found in predefined list", name)
 }
 
 func (xv6 *xv6) addBuiltinConstants(arch *Arch, consts map[string]uint64) {
@@ -259,9 +320,4 @@ func (xv6 *xv6) addBuiltinConstants(arch *Arch, consts map[string]uint64) {
 	}
 }
 
-// Helper function to check if file exists
-func fileExists(path string) bool {
-	// Simple file existence check
-	// In a real implementation, this would use os.Stat
-	return true // Simplified for now
-}
+// Helper function to check if file exists (removed as we now use osutil.IsExist)
