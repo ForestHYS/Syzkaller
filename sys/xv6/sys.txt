@@ -12,6 +12,13 @@ define T_DIR		1
 define T_FILE		2
 define T_DEV		3
 
+# Resources
+resource xv6_fd[int32]: 0xffffffffffffffff
+resource xv6_pid[int32]: 0xffffffffffffffff
+
+# File open flags
+xv6_open_flags = O_RDONLY, O_WRONLY, O_RDWR, O_CREATE, O_TRUNC
+
 # Process management
 fork() xv6_pid
 exit(status int32)
@@ -19,10 +26,10 @@ wait() xv6_pid
 getpid() xv6_pid
 
 # File operations  
-open(file ptr[in, filename], omode xv6_open_flags) xv6_fd
+open(file ptr[in, filename], omode flags[xv6_open_flags, int32]) xv6_fd
 close(fd xv6_fd)
-read(fd xv6_fd, buf buffer[out], n len[buf]) len[buf]
-write(fd xv6_fd, buf buffer[in], n len[buf]) len[buf]
+read(fd xv6_fd, buf buffer[out], count len[buf])
+write(fd xv6_fd, buf buffer[in], count len[buf])
 
 # File metadata
 fstat(fd xv6_fd, st ptr[out, xv6_stat])
@@ -38,14 +45,14 @@ link(old ptr[in, filename], new ptr[in, filename])
 exec(path ptr[in, filename], argv ptr[in, array[ptr[in, string]]])
 kill(pid xv6_pid)
 sleep(n int32)
-uptime() intptr
+uptime()
 
 # I/O operations
 dup(fd xv6_fd) xv6_fd
 pipe(p ptr[out, array[xv6_fd, 2]])
 
-# Memory management
-sbrk(n intptr) intptr
+# Memory management  
+sbrk(n intptr)
 
 # Data structures
 xv6_stat {
@@ -55,8 +62,3 @@ xv6_stat {
 	nlink	int16
 	size	int64
 }
-
-# Types and resources
-type xv6_open_flags flags[O_RDONLY, O_WRONLY, O_RDWR, O_CREATE, O_TRUNC, int32]
-type xv6_pid int32
-resource xv6_fd[int32]: 0xffffffffffffffff
